@@ -8,18 +8,73 @@ on:
 jobs:
   build:
     runs-on: ubuntu-latest
-    container:
-      image: kivy/buildozer:latest
 
     steps:
-      - name: Checkout
+      - name: Checkout repository
         uses: actions/checkout@v4
+
+      - name: Set up Python
+        uses: actions/setup-python@v5
+        with:
+          python-version: "3.10"
+
+      - name: Install system dependencies
+        run: |
+          sudo apt update
+          sudo apt install -y \
+            python3-pip \
+            zip unzip \
+            openjdk-17-jdk \
+            libffi-dev \
+            libssl-dev \
+            libxml2-dev \
+            libxslt1-dev \
+            zlib1g-dev \
+            libjpeg-dev \
+            libfreetype6-dev \
+            liblcms2-dev \
+            libblas-dev \
+            liblapack-dev \
+            libsqlite3-dev \
+            libpng-dev \
+            libavcodec-dev \
+            libavformat-dev \
+            libswscale-dev \
+            libgl1-mesa-dev \
+            libgles2-mesa-dev \
+            libsdl2-dev \
+            libsdl2-image-dev \
+            libsdl2-mixer-dev \
+            libsdl2-ttf-dev \
+            libportmidi-dev \
+            libswresample-dev \
+            libtiff-dev \
+            libmtdev-dev \
+            libglfw3 \
+            libudev-dev \
+            libdrm-dev \
+            libasound2-dev \
+            libx11-dev \
+            libxcursor-dev \
+            libxrandr-dev \
+            libxinerama-dev \
+            libxi-dev \
+            libxcomposite-dev \
+            libxdamage-dev \
+            libxss-dev \
+            libxtst-dev \
+            libxext-dev
+
+      - name: Install Python dependencies
+        run: |
+          python3 -m pip install --upgrade pip
+          pip install buildozer cython
 
       - name: Build APK
         run: |
           buildozer android debug
 
-      - name: Upload APK
+      - name: Upload APK artifact
         uses: actions/upload-artifact@v4
         with:
           name: change-bg-app
