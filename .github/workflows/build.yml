@@ -77,17 +77,16 @@ jobs:
             buildozer init
           fi
           
-          # Force buildozer to use our SDK path and accept licenses
-          cat >> buildozer.spec << EOF
+          # Update buildozer.spec with required settings
+          sed -i 's/android.api = .*/android.api = 34/' buildozer.spec
+          sed -i 's/android.minapi = .*/android.minapi = 21/' buildozer.spec
+          sed -i 's/android.ndk = .*/android.ndk = 25b/' buildozer.spec
+          sed -i 's/android.sdk = .*/android.sdk = 34/' buildozer.spec
           
-# Android specific
-android.api = 34
-android.minapi = 21
-android.ndk = 25b
-android.sdk = 34
-android.accept_sdk_license = True
-android.skip_update = False
-EOF
+          # Add additional settings
+          echo "" >> buildozer.spec
+          echo "android.accept_sdk_license = True" >> buildozer.spec
+          echo "android.skip_update = False" >> buildozer.spec
 
       - name: Pre-accept Android licenses in buildozer directory
         run: |
