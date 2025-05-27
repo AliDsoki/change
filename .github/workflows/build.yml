@@ -27,70 +27,109 @@ jobs:
           pip install --upgrade pip
           pip install buildozer cython
 
-      - name: Initialize Buildozer and prepare directories
+      - name: Setup Android SDK with proper structure
         run: |
-          # Create buildozer.spec if it doesn't exist
-          if [ ! -f buildozer.spec ]; then
-            buildozer init
-          fi
+          # Create the exact directory structure buildozer expects
+          mkdir -p .buildozer/android/platform/android-sdk
           
-          # Update buildozer.spec with required settings
-          sed -i 's/android.api = .*/android.api = 34/' buildozer.spec
-          sed -i 's/android.minapi = .*/android.minapi = 21/' buildozer.spec
-          sed -i 's/android.ndk = .*/android.ndk = 25b/' buildozer.spec
-          sed -i 's/android.sdk = .*/android.sdk = 34/' buildozer.spec
-          
-          # Create buildozer directory structure
-          mkdir -p .buildozer/android/platform
-
-      - name: Setup Android SDK in buildozer directory
-        run: |
-          # Set up Android SDK in the path that buildozer expects
+          # Set SDK root
           export ANDROID_SDK_ROOT=$PWD/.buildozer/android/platform/android-sdk
-          mkdir -p $ANDROID_SDK_ROOT
+          export ANDROID_HOME=$ANDROID_SDK_ROOT
           
-          # Download and extract command line tools
+          # Download and setup command line tools
           cd /tmp
           wget -q https://dl.google.com/android/repository/commandlinetools-linux-11076708_latest.zip
           unzip -q commandlinetools-linux-11076708_latest.zip
           mkdir -p $ANDROID_SDK_ROOT/cmdline-tools
           mv cmdline-tools $ANDROID_SDK_ROOT/cmdline-tools/latest
           
-          # Set environment variables
-          export ANDROID_HOME=$ANDROID_SDK_ROOT
-          export PATH=$PATH:$ANDROID_SDK_ROOT/cmdline-tools/latest/bin:$ANDROID_SDK_ROOT/platform-tools
+          # Setup PATH
+          export PATH=$ANDROID_SDK_ROOT/cmdline-tools/latest/bin:$PATH
           
-          # Accept licenses automatically
-          yes | $ANDROID_SDK_ROOT/cmdline-tools/latest/bin/sdkmanager --licenses || true
+          # Accept all licenses first
+          yes | sdkmanager --licenses || true
           
-          # Install required packages
-          $ANDROID_SDK_ROOT/cmdline-tools/latest/bin/sdkmanager "platform-tools" "build-tools;34.0.0" "platforms;android-34"
+          # Install multiple versions of build-tools to cover all possibilities
+          sdkmanager "platform-tools"
+          sdkmanager "platforms;android-34"
+          sdkmanager "build-tools;34.0.0"
+          sdkmanager "build-tools;33.0.2"
+          sdkmanager "build-tools;35.0.0" || true
+          sdkmanager "build-tools;36.0.0" || true
+          
+          # If 36.0.0 failed, create a symlink from 34.0.0
+          if [ ! -d "$ANDROID_SDK_ROOT/build-tools/36.0.0" ]; then
+            echo "Creating symlink for build-tools 36.0.0"
+            ln -s $ANDROID_SDK_ROOT/build-tools/34.0.0 $ANDROID_SDK_ROOT/build-tools/36.0.0
+          fi
           
           # Verify installation
-          ls -la $ANDROID_SDK_ROOT/build-tools/
+          echo "Installed build-tools versions:"
+          ls -la $ANDROID_SDK_ROOT/build-tools/ || echo "No build-tools found"
           
-          # Add to environment for next steps
-          echo "ANDROID_SDK_ROOT=$PWD/.buildozer/android/platform/android-sdk" >> $GITHUB_ENV
-          echo "ANDROID_HOME=$PWD/.buildozer/android/platform/android-sdk" >> $GITHUB_ENV
+          # Check for aidl
+          find $ANDROID_SDK_ROOT -name "aidl" -type f || echo "aidl not found"
 
-      - name: Cache buildozer global directory
+      - name: Initialize and configure Buildozer
+        run: |
+          # Create buildozer.spec if it doesn't exist
+          if [ ! -f buildozer.spec ]; then
+            buildozer init
+          fi
+          
+          # Force buildozer to use our SDK path and accept licenses
+          cat >> buildozer.spec << EOF
+          
+# Android specific
+android.api = 34
+android.minapi = 21
+android.ndk = 25b
+android.sdk = 34
+android.accept_sdk_license = True
+android.skip_update = False
+EOF
+
+      - name: Pre-accept Android licenses in buildozer directory
+        run: |
+          # Set environment variables
+          export ANDROID_SDK_ROOT=$PWD/.buildozer/android/platform/android-sdk
+          export ANDROID_HOME=$ANDROID_SDK_ROOT
+          export PATH=$ANDROID_SDK_ROOT/cmdline-tools/latest/bin:$PATH
+          
+          # Create licenses directory and accept all licenses
+          mkdir -p $ANDROID_SDK_ROOT/licenses
+          
+          # Write license acceptance files
+          echo "8933bad161af4178b1185d1a37fbf41ea5269c55" > $ANDROID_SDK_ROOT/licenses/android-sdk-license
+          echo "d56f5187479451eabf01fb78af6dfcb131a6481e" >> $ANDROID_SDK_ROOT/licenses/android-sdk-license
+          echo "24333f8a63b6825ea9c5514f83c2829b004d1fee" >> $ANDROID_SDK_ROOT/licenses/android-sdk-license
+          echo "84831b9409646a918e30573bab4c9c91346d8abd" > $ANDROID_SDK_ROOT/licenses/android-sdk-preview-license
+          echo "79120722343a6f314e0719f863036c702b0e6b2a" > $ANDROID_SDK_ROOT/licenses/android-sdk-arm-dbt-license
+          echo "d975f751698a77b662f1254ddbeed3901e976f5a" > $ANDROID_SDK_ROOT/licenses/intel-android-extra-license
+          
+          # Try accepting licenses again
+          yes | sdkmanager --licenses || true
+
+      - name: Cache buildozer directory
         uses: actions/cache@v3
         with:
           path: .buildozer
-          key: buildozer-${{ hashFiles('buildozer.spec') }}
+          key: buildozer-${{ hashFiles('buildozer.spec') }}-v2
 
       - name: Build the APK
         run: |
           export ANDROID_SDK_ROOT=$PWD/.buildozer/android/platform/android-sdk
-          export ANDROID_HOME=$PWD/.buildozer/android/platform/android-sdk
-          export PATH=$PATH:$ANDROID_SDK_ROOT/cmdline-tools/latest/bin:$ANDROID_SDK_ROOT/platform-tools:$ANDROID_SDK_ROOT/build-tools/34.0.0
+          export ANDROID_HOME=$ANDROID_SDK_ROOT
+          export PATH=$ANDROID_SDK_ROOT/cmdline-tools/latest/bin:$ANDROID_SDK_ROOT/platform-tools:$ANDROID_SDK_ROOT/build-tools/34.0.0:$PATH
           
-          # Debug: Check if aidl exists
-          echo "Checking for aidl..."
-          find $ANDROID_SDK_ROOT -name "aidl" -type f
-          ls -la $ANDROID_SDK_ROOT/build-tools/34.0.0/ || echo "build-tools directory not found"
+          # Final check
+          echo "Final check before building:"
+          echo "ANDROID_SDK_ROOT: $ANDROID_SDK_ROOT"
+          ls -la $ANDROID_SDK_ROOT/build-tools/ || echo "build-tools directory missing"
+          which aidl || echo "aidl not in PATH"
           
-          buildozer android debug
+          # Build with verbose output
+          buildozer android debug --verbose
 
       - name: Upload APK
         uses: actions/upload-artifact@v4
