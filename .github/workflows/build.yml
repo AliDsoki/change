@@ -10,65 +10,88 @@ jobs:
     runs-on: ubuntu-latest
 
     steps:
-      - uses: actions/checkout@v3
+      - name: Checkout
+        uses: actions/checkout@v4
 
       - name: Set up Python
         uses: actions/setup-python@v4
         with:
-          python-version: '3.10'
+          python-version: '3.11'
 
       - name: Install system dependencies
         run: |
           sudo apt update
-          sudo apt install -y git zip unzip openjdk-17-jdk python3-pip python3-setuptools python3-wheel python3-dev build-essential libncurses-dev libreadline-dev libsqlite3-dev libgdbm-dev libdb5.3-dev libbz2-dev libexpat1-dev liblzma-dev zlib1g-dev libffi-dev libssl-dev libsndfile1 ffmpeg libgl1-mesa-dev
+          sudo apt install -y git zip unzip openjdk-17-jdk autoconf libtool pkg-config zlib1g-dev libncurses5-dev libncursesw5-dev libtinfo5 cmake libffi-dev libssl-dev
 
       - name: Install Python dependencies
         run: |
-          pip install --upgrade pip
+          python -m pip install --upgrade pip wheel setuptools
           pip install buildozer cython
 
-      - name: Setup Android SDK
-        run: |
-          mkdir -p .buildozer/android/platform/android-sdk
-          export ANDROID_SDK_ROOT=$PWD/.buildozer/android/platform/android-sdk
-          export ANDROID_HOME=$ANDROID_SDK_ROOT
-          cd /tmp
-          wget -q https://dl.google.com/android/repository/commandlinetools-linux-11076708_latest.zip
-          unzip -q commandlinetools-linux-11076708_latest.zip
-          mkdir -p $ANDROID_SDK_ROOT/cmdline-tools
-          mv cmdline-tools $ANDROID_SDK_ROOT/cmdline-tools/latest
-          export PATH=$ANDROID_SDK_ROOT/cmdline-tools/latest/bin:$PATH
-
-      - name: Accept licenses and install build tools
-        run: |
-          export ANDROID_SDK_ROOT=$PWD/.buildozer/android/platform/android-sdk
-          export ANDROID_HOME=$ANDROID_SDK_ROOT
-          export PATH=$ANDROID_SDK_ROOT/cmdline-tools/latest/bin:$PATH
-          mkdir -p $ANDROID_SDK_ROOT/licenses
-          echo "8933bad161af4178b1185d1a37fbf41ea5269c55" > $ANDROID_SDK_ROOT/licenses/android-sdk-license
-          echo "d56f5187479451eabf01fb78af6dfcb131a6481e" >> $ANDROID_SDK_ROOT/licenses/android-sdk-license
-          echo "24333f8a63b6825ea9c5514f83c2829b004d1fee" >> $ANDROID_SDK_ROOT/licenses/android-sdk-license
-          yes | sdkmanager --licenses || true
-          sdkmanager "platform-tools"
-          sdkmanager "platforms;android-34"
-          sdkmanager "build-tools;34.0.0"
-          sdkmanager "build-tools;36.0.0" || ln -s $ANDROID_SDK_ROOT/build-tools/34.0.0 $ANDROID_SDK_ROOT/build-tools/36.0.0
-
-      - name: Configure Buildozer
+      - name: Create buildozer spec
         run: |
           if [ ! -f buildozer.spec ]; then
             buildozer init
           fi
-          sed -i 's/android.api = .*/android.api = 34/' buildozer.spec
-          sed -i 's/android.minapi = .*/android.minapi = 21/' buildozer.spec
-          sed -i 's/android.ndk = .*/android.ndk = 25b/' buildozer.spec
-          sed -i 's/android.sdk = .*/android.sdk = 34/' buildozer.spec
+
+      - name: Download and setup Android SDK manually
+        run: |
+          # Create directory structure
+          mkdir -p .buildozer/android/platform/android-sdk
+          cd .buildozer/android/platform/android-sdk
+          
+          # Download command line tools
+          wget -q https://dl.google.com/android/repository/commandlinetools-linux-11076708_latest.zip
+          unzip -q commandlinetools-linux-11076708_latest.zip
+          mkdir -p cmdline-tools
+          mv cmdline-tools cmdline-tools/latest
+          
+          # Download and extract build-tools directly
+          wget -q https://dl.google.com/android/repository/build-tools_r34.0.0-linux.zip
+          unzip -q build-tools_r34.0.0-linux.zip
+          mkdir -p build-tools
+          mv android-* build-tools/34.0.0
+          
+          # Download platform-tools
+          wget -q https://dl.google.com/android/repository/platform-tools-latest-linux.zip
+          unzip -q platform-tools-latest-linux.zip
+          
+          # Download Android platform
+          wget -q https://dl.google.com/android/repository/platform-34_r03.zip
+          mkdir -p platforms/android-34
+          unzip -q platform-34_r03.zip -d platforms/android-34
+          
+          # Create symlink for version 36.0.0 that buildozer expects
+          ln -sf 34.0.0 build-tools/36.0.0
+          
+          # Set permissions
+          chmod +x build-tools/34.0.0/*
+          chmod +x platform-tools/*
+          
+          echo "Build tools installed:"
+          ls -la build-tools/
+          echo "AIDL location:"
+          find . -name "aidl" -type f
+
+      - name: Accept Android licenses
+        run: |
+          SDK_ROOT=.buildozer/android/platform/android-sdk
+          mkdir -p $SDK_ROOT/licenses
+          echo "8933bad161af4178b1185d1a37fbf41ea5269c55" > $SDK_ROOT/licenses/android-sdk-license
+          echo "d56f5187479451eabf01fb78af6dfcb131a6481e" >> $SDK_ROOT/licenses/android-sdk-license
+          echo "24333f8a63b6825ea9c5514f83c2829b004d1fee" >> $SDK_ROOT/licenses/android-sdk-license
 
       - name: Build APK
         run: |
           export ANDROID_SDK_ROOT=$PWD/.buildozer/android/platform/android-sdk
           export ANDROID_HOME=$ANDROID_SDK_ROOT
-          export PATH=$ANDROID_SDK_ROOT/cmdline-tools/latest/bin:$ANDROID_SDK_ROOT/platform-tools:$ANDROID_SDK_ROOT/build-tools/34.0.0:$PATH
+          export PATH=$PATH:$ANDROID_SDK_ROOT/build-tools/34.0.0:$ANDROID_SDK_ROOT/platform-tools
+          
+          echo "Environment check:"
+          echo "ANDROID_SDK_ROOT: $ANDROID_SDK_ROOT"
+          echo "Build tools path exists: $(ls -la $ANDROID_SDK_ROOT/build-tools/)"
+          echo "AIDL exists: $(ls -la $ANDROID_SDK_ROOT/build-tools/34.0.0/aidl)"
+          
           buildozer android debug
 
       - name: Upload APK
